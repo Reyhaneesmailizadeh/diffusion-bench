@@ -51,10 +51,9 @@ def create_eval_dataloader(dataset, rank: int, world_size: int,
         subset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=2,
-        pin_memory=True,
+        num_workers=0,
+        pin_memory=False,
         drop_last=False,
-        multiprocessing_context="spawn",
     )
 
 

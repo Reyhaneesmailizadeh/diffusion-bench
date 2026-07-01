@@ -3,16 +3,6 @@ stage_1:
   params:
     resolution: 256
 
-# stage_2:
-#   target: stage2.models.DDT.DiTwDDTHead
-#   params:
-#     input_size: 16
-#     patch_size: [1, 1]
-#     in_channels: 128
-#     hidden_size: [1152, 2048]
-#     depth: [28, 2]
-#     num_heads: [16, 16]
-#     mlp_ratio: 4.0
 stage_2:
   target: stage2.models.lightningDiT.LightningDiT
   params:
@@ -81,36 +71,17 @@ training:
     warmup_from_zero: false
   image_size: 256
 
-# eval:
-#   eval_interval: 10000
-#   eval_model: false
-#   eval_dir: "results/evals/stage2/training/t2i-vae"
-#   datasets:
-#     geneval:
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'val'
-#       condition_type: 'text'
-#       metrics: ['geneval']
-#     dpgbench:
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'val'
-#       condition_type: 'text'
-#       metrics: ['dpgbench']
-#     simpleeval_v1:
-#       target: simpleeval
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'v1'
-#       condition_type: 'text'
-#       metrics: ['vqascore_qwen3-vl-8b']
-#     genaibench:
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'val'
-#       condition_type: 'text'
-#       metrics: ['vqascore_clip-flant5-xxl']
+eval:
+  eval_dir: "results/evals/stage2/training/dogs"
+  datasets:
+    dogs:
+      target: dogs
+      type: wds
+      data_dir: "/data3/rey/dogs_wds/all"
+      condition_type: "text"
+      metrics:
+        - fid
+      reference_npz: "/data3/rey/dogs_wds/dogs_all_stats.npz"
 
 misc:
   latent_size: [128, 16, 16]

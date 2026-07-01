@@ -40,7 +40,7 @@ guidance:
 dataset:
   target: 'dogs'
   type: 'wds'
-  data_dir: "/data3/rey/dogs_wds/all"
+  data_dir: "/data3/rey/dogs_recaptioned_wds"
   condition_type: "text"
   shuffle_buffer: 5000
   seed: 42
@@ -74,16 +74,23 @@ training:
 eval:
   eval_interval: 20000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs"
+  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa"
   datasets:
     dogs:
       target: 'dogs'
       type: 'wds'
-      data_dir: '/data3/rey/dogs_wds/all'
+      data_dir: '/data3/rey/dogs_recaptioned_wds'
       condition_type: 'text'
-      reference_npz: '/data3/rey/dogs_wds/dogs_all_stats.npz'
+      reference_npz: '/data3/rey/dogs_recaptioned_wds/dogs_recaptioned_all_stats.npz'
       metrics: ['fid']
 
+repa:
+  use_repa: true
+  use_reg: false
+  repa_layer_depth: 8
+  repa_coeff: 0.5
+  target_encoder: dinov2-vit-bnormworeg
+  target_encoder_resolution: 256
 
 misc:
   latent_size: [32, 16, 16]

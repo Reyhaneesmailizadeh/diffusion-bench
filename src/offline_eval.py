@@ -107,6 +107,16 @@ def main(args):
 
     model: Stage2ModelProtocol = instantiate_from_config(config.stage_2).to(device)
     model.eval()
+
+    ckpt_step = 0
+    if args.checkpoint:
+        ckpt = torch.load(args.checkpoint, map_location="cpu")
+        ema_weights = ckpt.get("ema", ckpt.get("model"))
+        model.load_state_dict(ema_weights)
+        ckpt_step = ckpt.get("step", 0)
+        if rank == 0:
+            logger.info(f"  Loaded EMA weights from {args.checkpoint} (epoch {ckpt.get('epoch', '?')}, step {ckpt_step})")
+
     model_fn, sample_model_kwargs = get_model_forward_fn(model, config.guidance)
     use_guidance = config.guidance.any_guidance_active
     if rank == 0:
@@ -133,7 +143,7 @@ def main(args):
     # ============================================================
     # Eval datasets setup
     # ============================================================
-    global_step = 0
+    global_step = ckpt_step
     global_batch_size = config.training.global_batch_size or (config.training.batch_size * world_size * config.training.grad_accum_steps)
     assert global_batch_size % world_size == 0, "global_batch_size must be divisible by world_size"
     micro_batch_size = global_batch_size // (world_size * config.training.grad_accum_steps)
@@ -193,6 +203,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Offline evaluation for generation models")
     parser.add_argument("--config", type=str, required=True,
                         help="Path to the config file")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Path to a stage-2 checkpoint (.pt); loads EMA weights")
     parser.add_argument("--precision", type=str, choices=["fp32", "bf16"], default="bf16",
                         help="Compute precision")
     args = parser.parse_args()

@@ -154,6 +154,10 @@ def prepare_unified_dataloader(
         result = _prepare_imagenet_loader(
             config, image_size, batch_size, num_workers, rank, world_size, transform, condition_type, shuffle
         )
+    elif target == "dogs":
+        result = _prepare_dogs_loader(
+            config, image_size, batch_size, num_workers, world_size, transform, shuffle
+        )
     result.virtual_epoch_steps = virtual_epoch_steps
     return result
 
@@ -306,4 +310,56 @@ def _prepare_imagenet_loader(
         sampler=sampler,
         dataset_size=len(dataset),
         is_iterable=False,
+    )
+
+
+def _prepare_dogs_loader(
+    config: dict,
+    image_size: int,
+    batch_size: int,
+    num_workers: int,
+    world_size: int,
+    transform: Optional[transforms.Compose],
+    shuffle: bool = True,
+) -> DataloaderResult:
+    """Prepare Dogs WebDataset loader."""
+    from .dogs_wds_dataset import DogsWebDataset
+
+    data_dir = config.get("data_dir", "/data3/rey/dogs_wds")
+    shuffle_buffer = config.get("shuffle_buffer", 5000)
+    seed = config.get("seed", 42)
+
+    wds_pipeline = DogsWebDataset(
+        data_dir=data_dir,
+        transform=transform,
+        image_size=image_size,
+        shuffle_buffer=shuffle_buffer,
+        seed=seed,
+    )
+
+    dataset = wds_pipeline.create_pipeline(epoch=0, shuffle=shuffle)
+    total_samples = wds_pipeline.estimated_size
+    steps = total_samples // (batch_size * world_size)
+
+    # For eval (shuffle=False) skip node splitting so all shards are visible on each rank
+    actual_num_workers = num_workers if shuffle else 0
+    loader = wds.WebLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=actual_num_workers,
+        pin_memory=True,
+        multiprocessing_context="spawn" if actual_num_workers > 0 else None,
+    )
+    if shuffle:
+        loader = loader.with_epoch(steps)
+
+    return DataloaderResult(
+        loader=loader,
+        sampler=None,
+        dataset_size=total_samples,
+        is_iterable=True,
+        _wds_pipeline=wds_pipeline,
+        _batch_size=batch_size,
+        _num_workers=num_workers,
+        _world_size=world_size,
     )

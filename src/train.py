@@ -240,7 +240,25 @@ def main():
                            generator=torch.Generator(device=device).manual_seed(seed)),
         'context': None,
         'attn_mask': None,
+        'prompts': None,
     }
+
+    # On resume: restore fixed prompts from the saved CSV so visualizations stay
+    # consistent with pre-crash samples. Only rank 0 needs this (it's the only
+    # rank that generates fixed samples), and only for text conditioning.
+    if rank == 0 and config.conditioning.type == "text" and text_encoder is not None:
+        prompts_path = os.path.join(experiment_dir, "fixed_prompts.csv")
+        if os.path.exists(prompts_path):
+            import csv
+            with open(prompts_path, newline='', encoding='utf-8') as f:
+                prompts = [row['prompt'] for row in csv.DictReader(f)]
+            prompts = prompts[:num_viz_samples]
+            with torch.no_grad():
+                enc_out = text_encoder(prompts)
+            viz_fixed['context'] = enc_out['tokens']
+            viz_fixed['attn_mask'] = enc_out['attention_mask']
+            viz_fixed['prompts'] = prompts
+            logger.info(f"Restored {len(prompts)} fixed viz prompts from {prompts_path}")
 
     #########################################################
     # Training loop

@@ -248,6 +248,22 @@ def train_one_epoch(
                             cls_t=cls_init,
                             **sample_args,
                         )
+                    # save samples to disk
+                    from torchvision.utils import save_image
+                    samples_out_dir = os.path.join(experiment_dir, "samples")
+                    os.makedirs(samples_out_dir, exist_ok=True)
+                    for name, samples in samples_dict.items():
+                        tag = name.replace("/", "_")
+                        save_image(samples * 0.5 + 0.5, os.path.join(samples_out_dir, f"step{global_step:07d}_{tag}.png"), nrow=8, value_range=(0, 1))
+                    # save fixed prompts once (first time they're available)
+                    prompts_path = os.path.join(experiment_dir, "fixed_prompts.csv")
+                    if viz_fixed is not None and viz_fixed.get('prompts') is not None and not os.path.exists(prompts_path):
+                        import csv
+                        with open(prompts_path, 'w', newline='', encoding='utf-8') as f:
+                            writer = csv.writer(f)
+                            writer.writerow(['index', 'prompt'])
+                            for i, p in enumerate(viz_fixed['prompts']):
+                                writer.writerow([i + 1, p])
                     if args.wandb: # log samples to wandb
                         for name, samples in samples_dict.items():
                             grid = wandb_utils.array2grid(samples)

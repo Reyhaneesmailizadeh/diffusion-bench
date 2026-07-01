@@ -35,7 +35,7 @@ conditioning:
       num_t_tokens: 4
 
 transport:
-  prediction: 'velocity'
+  prediction: 'x'
   time_dist_type: 'logit-normal_0_1'
 
 sampler:
@@ -50,7 +50,7 @@ guidance:
 dataset:
   target: 'dogs'
   type: 'wds'
-  data_dir: "/data3/rey/dogs_wds"
+  data_dir: "/data3/rey/dogs_wds/all"
   condition_type: "text"
   shuffle_buffer: 5000
   seed: 42
@@ -64,7 +64,7 @@ training:
   num_workers: 4
   # virtual_epoch_steps: 10000
   log_interval: 100
-  checkpoint_interval: 10
+  checkpoint_interval: 50
   sample_every: 1000
   clip_grad: 1.0
   global_seed: 42
@@ -81,37 +81,18 @@ training:
     warmup_from_zero: false
   image_size: 256
 
-# eval:
-#   eval_interval: 10000
-#   eval_model: false
-#   eval_dir: "results/evals/stage2/training/t2i-vae"
-#   datasets:
-#     geneval:
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'val'
-#       condition_type: 'text'
-#       metrics: ['geneval']
-#     dpgbench:
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'val'
-#       condition_type: 'text'
-#       metrics: ['dpgbench']
-#     simpleeval_v1:
-#       target: simpleeval
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'v1'
-#       condition_type: 'text'
-#       metrics: ['vqascore_qwen3-vl-8b']
-#     genaibench:
-#       type: 'hf'
-#       data_dir: './data'
-#       split: 'val'
-#       condition_type: 'text'
-#       metrics: ['vqascore_clip-flant5-xxl']
-
+eval:
+  eval_interval: 10000
+  eval_model: false
+  eval_dir: "results/evals/stage2/training/dogs"
+  datasets:
+    dogs:
+      target: 'dogs'
+      type: 'wds'
+      data_dir: '/data3/rey/dogs_wds/all'
+      condition_type: 'text'
+      reference_npz: '/data3/rey/dogs_wds/dogs_all_stats.npz'
+      metrics: ['fid']
 misc:
   latent_size: [128, 16, 16]
   num_classes: 1000

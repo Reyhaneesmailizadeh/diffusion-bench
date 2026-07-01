@@ -8,6 +8,18 @@ from torch.utils.data import Dataset
 
 from data.unified_dataloader import prepare_unified_dataloader
 
+
+class ListDataset(Dataset):
+    """Map-style dataset backed by a pre-loaded list of (image, condition) pairs."""
+    def __init__(self, items):
+        self.items = items
+
+    def __len__(self):
+        return len(self.items)
+
+    def __getitem__(self, idx):
+        return self.items[idx]
+
 logger = logging.getLogger(__name__)
 
 
@@ -69,12 +81,23 @@ def prepare_eval_datasets(
             shuffle=False,
         )
 
+        if result.is_iterable:
+            logger.info(f"Materializing iterable eval dataset '{ds_name}' (conditions only)...")
+            conditions = []
+            for batch in result.loader:
+                _, conds = batch  # discard images — only conditions needed for generation
+                conditions.extend(conds if isinstance(conds, (list, tuple)) else conds.tolist())
+            dataset = ListDataset(conditions)
+        else:
+            base = result.loader.dataset
+            dataset = ListDataset([base[i][1] for i in range(len(base))])
+
         eval_datasets[ds_name] = EvalDatasetInfo(
-            dataset=result.loader.dataset,
+            dataset=dataset,
             reference_npz=ds_cfg.get('reference_npz'),
             condition_type=ds_cond_type,
             metrics=ds_cfg.get('metrics', ['fid']),
         )
-        logger.info(f"Eval dataset loaded: {ds_name}, {len(result.loader.dataset)} samples")
+        logger.info(f"Eval dataset loaded: {ds_name}, {len(dataset)} samples")
 
     return eval_datasets
