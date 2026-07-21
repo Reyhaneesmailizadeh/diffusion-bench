@@ -103,33 +103,51 @@ def train_one_epoch(
     #########################################################
     # Training loop
     #########################################################
+    use_precomputed = getattr(config.dataset, 'type', 'wds') == 'latents'
+
     dataloader.set_epoch(epoch)
-    for step, (images, y) in enumerate(dataloader):
-        images = images.to(device)
-
-        # Encode images to latents and compute REPA targets
-        with torch.no_grad():
-            z = rae.encode(images)
-            z_clean = cls_clean = None
-            if repa_target_encoder is not None:
-                raw_images = images.clone() * 255.0
-                raw_img_preprocessed = repa_target_encoder.preprocess(raw_images)
-                feats = repa_target_encoder.forward_features(raw_img_preprocessed)
-                z_clean = feats['x_norm_patchtokens']
-                if config.repa.use_reg:
-                    cls_clean = feats['x_norm_clstoken']
-                    if config.repa.use_repa:
-                        z_clean = torch.cat([cls_clean.unsqueeze(1), z_clean], dim=1)
-
-        # Capture fixed conditions from first batch
-        if viz_fixed is not None:
-            viz_fixed = get_fixed_viz_batch_conditions(viz_fixed, y, config.conditioning.type, text_encoder, device)
-
-        # Encode conditions
-        if config.conditioning.type == "text":
-            context, context_attn_mask = encode_text(text_encoder, y)
+    for step, batch in enumerate(dataloader):
+        if use_precomputed:
+            # Batch is (latent, tokens, attn_mask, dinov2) — all pre-encoded tensors
+            z, context, context_attn_mask, z_clean = batch
+            z = z.to(device)
+            context = context.to(device)
+            context_attn_mask = context_attn_mask.to(device)
+            # dinov2 sentinel is [B,1]; real shape is [B, patches, dim] (3D)
+            z_clean = z_clean.to(device) if z_clean.dim() == 3 else None
+            cls_clean = None
+            # Populate viz_fixed directly from pre-encoded context on first batch
+            if viz_fixed is not None and viz_fixed['context'] is None:
+                n = viz_fixed['zs'].shape[0]
+                viz_fixed['context'] = context[:n]
+                viz_fixed['attn_mask'] = context_attn_mask[:n]
         else:
-            context, context_attn_mask = y.to(device), None
+            images, y = batch
+            images = images.to(device)
+
+            # Encode images to latents and compute REPA targets
+            with torch.no_grad():
+                z = rae.encode(images)
+                z_clean = cls_clean = None
+                if repa_target_encoder is not None:
+                    raw_images = images.clone() * 255.0
+                    raw_img_preprocessed = repa_target_encoder.preprocess(raw_images)
+                    feats = repa_target_encoder.forward_features(raw_img_preprocessed)
+                    z_clean = feats['x_norm_patchtokens']
+                    if config.repa.use_reg:
+                        cls_clean = feats['x_norm_clstoken']
+                        if config.repa.use_repa:
+                            z_clean = torch.cat([cls_clean.unsqueeze(1), z_clean], dim=1)
+
+            # Capture fixed conditions from first batch
+            if viz_fixed is not None:
+                viz_fixed = get_fixed_viz_batch_conditions(viz_fixed, y, config.conditioning.type, text_encoder, device)
+
+            # Encode conditions
+            if config.conditioning.type == "text":
+                context, context_attn_mask = encode_text(text_encoder, y)
+            else:
+                context, context_attn_mask = y.to(device), None
 
         #########################################################
         # Forward + backward

@@ -74,7 +74,7 @@ training:
 eval:
   eval_interval: 20000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa"
+  eval_dir: "results/evals/stage2/training/dogs-recaptioned-withoutREPA"
   datasets:
     dogs:
       target: 'dogs'
@@ -84,13 +84,7 @@ eval:
       reference_npz: '/data3/rey/dogs_recaptioned_wds/dogs_recaptioned_all_stats.npz'
       metrics: ['fid']
 
-repa:
-  use_repa: true
-  use_reg: false
-  repa_layer_depth: 4
-  repa_coeff: 0.5
-  target_encoder: dinov2-vit-bnormworeg
-  target_encoder_resolution: 256
+
 
 misc:
   latent_size: [32, 16, 16]

@@ -10,9 +10,9 @@ stage_2:
     input_size: 16
     patch_size: 1
     in_channels: 32
-    hidden_size: 384
+    hidden_size: 256
     depth: 12
-    num_heads: 6
+    num_heads: 4
     mlp_ratio: 4.0
 
 conditioning:
@@ -39,8 +39,8 @@ guidance:
 
 dataset:
   target: 'dogs'
-  type: 'wds'
-  data_dir: "/data3/rey/dogs_recaptioned_wds"
+  type: 'latents'
+  data_dir: "/data3/rey/dogs_recaptioned_latents_wds"
   condition_type: "text"
   shuffle_buffer: 5000
   seed: 42
@@ -50,9 +50,8 @@ training:
   epochs: 600
   global_batch_size: 256
   grad_accum_steps: 1
-  ema_decay: 0.9999
+  ema_decay: 0.9995
   num_workers: 4
-  # virtual_epoch_steps: 10000
   log_interval: 100
   checkpoint_interval: 50
   sample_every: 1000
@@ -72,9 +71,9 @@ training:
   image_size: 256
 
 eval:
-  eval_interval: 20000
+  eval_interval: 10000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa"
+  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa-latents-EMA0.9995-h256"
   datasets:
     dogs:
       target: 'dogs'

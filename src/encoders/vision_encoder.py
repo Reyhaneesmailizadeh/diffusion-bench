@@ -195,7 +195,7 @@ class DINOv2Encoder(VisionEncoder):
         self.model.head = torch.nn.Identity()
 
         # Resample position embeddings if needed
-        patch_resolution = 16 * (self.resolution // 256)
+        patch_resolution = self.resolution // 16
         self.model.pos_embed.data = timm.layers.pos_embed.resample_abs_pos_embed(
             self.model.pos_embed.data, [patch_resolution, patch_resolution],
         )
@@ -219,7 +219,7 @@ class DINOv2Encoder(VisionEncoder):
         # Apply ImageNet normalization
         x = Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)(x)
         # Interpolate if needed
-        x = torch.nn.functional.interpolate(x, 224 * (self.resolution // 256), mode='bicubic')
+        x = torch.nn.functional.interpolate(x, 224 * self.resolution // 256, mode='bicubic')
         return x
 
     def forward_features(self, x: torch.Tensor) -> Dict[str, Optional[torch.Tensor]]:
@@ -514,7 +514,7 @@ class WebSSLEncoder(VisionEncoder):
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
         x = x / 255.
         x = Normalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)(x)
-        x = torch.nn.functional.interpolate(x, 224 * (self.resolution // 256), mode='bicubic')
+        x = torch.nn.functional.interpolate(x, 224 * self.resolution // 256, mode='bicubic')
         return x
 
     def forward_features(self, x: torch.Tensor) -> Dict[str, Optional[torch.Tensor]]:

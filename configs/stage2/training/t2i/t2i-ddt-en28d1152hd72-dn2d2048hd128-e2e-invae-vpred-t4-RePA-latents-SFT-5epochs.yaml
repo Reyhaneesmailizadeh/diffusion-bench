@@ -1,29 +1,19 @@
 stage_1:
-  target: stage1.Flux2VAE
+  target: stage1.VAE
   params:
+    vae_type: "e2e-invae"
     resolution: 256
 
-# stage_2:
-#   target: stage2.models.DDT.DiTwDDTHead
-#   params:
-#     input_size: 16
-#     patch_size: [1, 1]
-#     in_channels: 128
-#     hidden_size: [1152, 2048]
-#     depth: [28, 2]
-#     num_heads: [16, 16]
-#     mlp_ratio: 4.0
 stage_2:
   target: stage2.models.lightningDiT.LightningDiT
   params:
     input_size: 16
     patch_size: 1
-    in_channels: 128
+    in_channels: 32
     hidden_size: 384
     depth: 12
     num_heads: 6
     mlp_ratio: 4.0
-
 
 conditioning:
   type: "text"
@@ -35,7 +25,7 @@ conditioning:
       num_t_tokens: 4
 
 transport:
-  prediction: 'x'
+  prediction: 'velocity'
   time_dist_type: 'logit-normal_0_1'
 
 sampler:
@@ -49,52 +39,60 @@ guidance:
 
 dataset:
   target: 'dogs'
-  type: 'wds'
-  data_dir: "/data3/rey/dogs_wds/all"
+  type: 'latents'
+  data_dir: "/data3/rey/t2i-public-sft-120k-latents-invae"
   condition_type: "text"
   shuffle_buffer: 5000
   seed: 42
   shared_tmpdir: "~/tmp"
 
 training:
-  epochs: 500
+  epochs: 205
   global_batch_size: 256
   grad_accum_steps: 1
-  ema_decay: 0.9999
+  ema_decay: 0.9995
   num_workers: 4
-  # virtual_epoch_steps: 10000
   log_interval: 100
-  checkpoint_interval: 50
+  checkpoint_interval: 1
   sample_every: 1000
   clip_grad: 1.0
   global_seed: 42
   optimizer:
-    lr: 1.0e-4
+    lr: 1.0e-5
     betas: [0.9, 0.999]
     weight_decay: 0.0
   scheduler:
     type: linear
-    warmup_epochs: 10
-    decay_end_epoch: 200
-    base_lr: 1.0e-4
-    final_lr: 1.0e-5
+    warmup_epochs: 0
+    decay_end_epoch: 205
+    base_lr: 1.0e-5
+    final_lr: 1.0e-6
     warmup_from_zero: false
   image_size: 256
 
 eval:
-  eval_interval: 10000
+  eval_interval: 1000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs"
+  eval_dir: "results/evals/stage2/training/invae-sft-120k-5epochs"
   datasets:
     dogs:
       target: 'dogs'
       type: 'wds'
-      data_dir: '/data3/rey/dogs_wds/all'
+      data_dir: '/data3/rey/dogs_recaptioned_wds'
       condition_type: 'text'
-      reference_npz: '/data3/rey/dogs_wds/dogs_all_stats.npz'
+      reference_npz: '/data3/rey/dogs_recaptioned_wds/dogs_recaptioned_all_stats.npz'
       metrics: ['fid']
+
+repa:
+  use_repa: true
+  use_reg: false
+  repa_layer_depth: 4
+  repa_coeff: 0.5
+  target_encoder: dinov2-vit-bnormworeg
+  target_encoder_resolution: 256
+
 misc:
-  latent_size: [128, 16, 16]
+  latent_size: [32, 16, 16]
   num_classes: 1000
-  time_dist_shift_dim: 32768
+  time_dist_shift_dim: 8192
   time_dist_shift_base: 4096

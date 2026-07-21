@@ -69,6 +69,11 @@ VAE_CONFIGS: Dict[str, VAEConfig] = {
         latent_channels=32,
         downsample_factor=16,
     ),
+    "e2e-invae": VAEConfig(
+        pretrained_path="REPA-E/e2e-invae-hf",
+        latent_channels=32,
+        downsample_factor=16,
+    ),
     "sdxl-vae": VAEConfig(
         pretrained_path="madebyollin/sdxl-vae-fp16-fix",
         latent_channels=4,

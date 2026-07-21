@@ -155,9 +155,14 @@ def prepare_unified_dataloader(
             config, image_size, batch_size, num_workers, rank, world_size, transform, condition_type, shuffle
         )
     elif target == "dogs":
-        result = _prepare_dogs_loader(
-            config, image_size, batch_size, num_workers, world_size, transform, shuffle
-        )
+        if config.get("type", "wds") == "latents":
+            result = _prepare_dogs_latents_loader(
+                config, batch_size, num_workers, world_size, shuffle
+            )
+        else:
+            result = _prepare_dogs_loader(
+                config, image_size, batch_size, num_workers, world_size, transform, shuffle
+            )
     result.virtual_epoch_steps = virtual_epoch_steps
     return result
 
@@ -342,6 +347,53 @@ def _prepare_dogs_loader(
     steps = total_samples // (batch_size * world_size)
 
     # For eval (shuffle=False) skip node splitting so all shards are visible on each rank
+    actual_num_workers = num_workers if shuffle else 0
+    loader = wds.WebLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=actual_num_workers,
+        pin_memory=True,
+        multiprocessing_context="spawn" if actual_num_workers > 0 else None,
+    )
+    if shuffle:
+        loader = loader.with_epoch(steps)
+
+    return DataloaderResult(
+        loader=loader,
+        sampler=None,
+        dataset_size=total_samples,
+        is_iterable=True,
+        _wds_pipeline=wds_pipeline,
+        _batch_size=batch_size,
+        _num_workers=num_workers,
+        _world_size=world_size,
+    )
+
+
+def _prepare_dogs_latents_loader(
+    config: dict,
+    batch_size: int,
+    num_workers: int,
+    world_size: int,
+    shuffle: bool = True,
+) -> DataloaderResult:
+    """Prepare Dogs pre-computed latents WebDataset loader."""
+    from .dogs_latents_wds_dataset import DogsLatentsWebDataset
+
+    data_dir = config.get("data_dir", "/data3/rey/dogs_recaptioned_latents_wds")
+    shuffle_buffer = config.get("shuffle_buffer", 5000)
+    seed = config.get("seed", 42)
+
+    wds_pipeline = DogsLatentsWebDataset(
+        data_dir=data_dir,
+        shuffle_buffer=shuffle_buffer,
+        seed=seed,
+    )
+
+    dataset = wds_pipeline.create_pipeline(epoch=0, shuffle=shuffle)
+    total_samples = wds_pipeline.estimated_size
+    steps = total_samples // (batch_size * world_size)
+
     actual_num_workers = num_workers if shuffle else 0
     loader = wds.WebLoader(
         dataset,

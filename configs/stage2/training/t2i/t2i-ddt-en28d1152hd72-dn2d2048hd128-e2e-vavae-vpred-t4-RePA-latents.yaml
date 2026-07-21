@@ -39,8 +39,8 @@ guidance:
 
 dataset:
   target: 'dogs'
-  type: 'wds'
-  data_dir: "/data3/rey/dogs_recaptioned_wds"
+  type: 'latents'
+  data_dir: "/data3/rey/dogs_recaptioned_latents_wds"
   condition_type: "text"
   shuffle_buffer: 5000
   seed: 42
@@ -52,7 +52,6 @@ training:
   grad_accum_steps: 1
   ema_decay: 0.9999
   num_workers: 4
-  # virtual_epoch_steps: 10000
   log_interval: 100
   checkpoint_interval: 50
   sample_every: 1000
@@ -74,7 +73,7 @@ training:
 eval:
   eval_interval: 20000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa"
+  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa-latents"
   datasets:
     dogs:
       target: 'dogs'
