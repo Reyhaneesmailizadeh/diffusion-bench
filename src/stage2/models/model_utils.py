@@ -73,7 +73,7 @@ class NormAttention(nn.Module):
         self.q_norm = RMSNorm(self.head_dim)
         self.k_norm = RMSNorm(self.head_dim)
 
-    def forward(self, x, rope, attn_mask=None):
+    def forward(self, x, rope, attn_mask=None, return_weights=False):
         B, N, _ = x.shape
         q = self.q(x).reshape(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
         k = self.k(x).reshape(B, N, self.num_heads, self.head_dim).permute(0, 2, 1, 3)
@@ -81,9 +81,24 @@ class NormAttention(nn.Module):
         q = self.q_norm(q)
         k = self.k_norm(k)
         q, k = rope(q), rope(k)
-        out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
+        if return_weights:
+            # Fused SDPA never exposes softmax(QK^T) itself, so recompute unfused here.
+            # Only used by the (rare) block requested by return_attn_layer; every other
+            # block/step keeps using the fast fused path above.
+            scale = self.head_dim ** -0.5
+            scores = (q @ k.transpose(-2, -1)) * scale
+            if attn_mask is not None:
+                scores = scores + attn_mask
+            weights = torch.softmax(scores, dim=-1)
+            out = weights @ v
+        else:
+            weights = None
+            out = F.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
         out = out.permute(0, 2, 1, 3).reshape(B, N, self.dim)
-        return self.proj(out)
+        out = self.proj(out)
+        if return_weights:
+            return out, weights
+        return out
 
 
 class GaussianFourierEmbedding(nn.Module):

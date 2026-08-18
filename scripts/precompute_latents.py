@@ -6,6 +6,7 @@ and writes new WDS shards where each sample contains:
   - tokens.npy   : text token embeddings  [seq_len, dim]  float16
   - attn_mask.npy: attention mask          [seq_len]       bool
   - dinov2.npy   : DINOv2 patch tokens   [num_patches, dim]  float16  (only if RePA)
+  - attn_target.npy : pooled image->text attention, [dit_grid_size**2]  float16  (only if attn_align)
   - txt          : original caption (kept for reference)
 
 Single-GPU usage:
@@ -116,6 +117,13 @@ def main():
         repa_encoder.eval()
         repa_encoder.model.requires_grad_(False)
 
+    attn_teacher = None
+    if cfg.attn_align.use_attn_align:
+        if rank == 0:
+            print(f"Loading attention-align teacher ({cfg.attn_align.teacher_model})...")
+        from encoders.bridgetower_attn_teacher import BridgeTowerAttnTeacher
+        attn_teacher = BridgeTowerAttnTeacher(device=device)
+
     # ------------------------------------------------------------------ #
     # Image transform
     # ------------------------------------------------------------------ #
@@ -178,6 +186,13 @@ def main():
                     preprocessed = repa_encoder.preprocess(images * 255.0)
                     feats = repa_encoder.forward_features(preprocessed)
                     dinov2_feats = feats["x_norm_patchtokens"]            # [B, num_patches, dim]
+                attn_targets = None
+                if attn_teacher is not None:
+                    from torchvision.transforms.functional import to_pil_image
+                    pil_images = [to_pil_image(img.cpu()) for img in images]
+                    attn_targets = attn_teacher.get_attn_target(
+                        pil_images, captions, cfg.attn_align.dit_grid_size
+                    )  # [B, dit_grid_size**2]
 
             for i in range(len(batch)):
                 sample = {
@@ -197,6 +212,10 @@ def main():
                 if dinov2_feats is not None:
                     buf = io.BytesIO(); np.save(buf, to_fp16_numpy(dinov2_feats[i]))
                     sample["dinov2.npy"] = buf.getvalue()
+
+                if attn_targets is not None:
+                    buf = io.BytesIO(); np.save(buf, to_fp16_numpy(attn_targets[i]))
+                    sample["attn_target.npy"] = buf.getvalue()
 
                 sink.write(sample)
                 total_written += 1

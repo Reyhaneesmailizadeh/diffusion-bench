@@ -58,6 +58,7 @@ def train_one_epoch(
     progress_bar,
     text_encoder=None,
     repa_target_encoder=None,
+    attn_teacher=None,
     eval_datasets: Optional[Dict] = None,
     viz_fixed: Optional[Dict] = None,
 ) -> int:
@@ -108,13 +109,15 @@ def train_one_epoch(
     dataloader.set_epoch(epoch)
     for step, batch in enumerate(dataloader):
         if use_precomputed:
-            # Batch is (latent, tokens, attn_mask, dinov2) — all pre-encoded tensors
-            z, context, context_attn_mask, z_clean = batch
+            # Batch is (latent, tokens, attn_mask, dinov2, attn_target) — all pre-encoded tensors
+            z, context, context_attn_mask, z_clean, attn_target = batch
             z = z.to(device)
             context = context.to(device)
             context_attn_mask = context_attn_mask.to(device)
             # dinov2 sentinel is [B,1]; real shape is [B, patches, dim] (3D)
             z_clean = z_clean.to(device) if z_clean.dim() == 3 else None
+            # attn_target sentinel is [B,1]; real shape is [B, dit_grid_size**2] (2D, width > 1)
+            attn_target = attn_target.to(device) if attn_target.shape[-1] > 1 else None
             cls_clean = None
             # Populate viz_fixed directly from pre-encoded context on first batch
             if viz_fixed is not None and viz_fixed['context'] is None:
@@ -128,7 +131,7 @@ def train_one_epoch(
             # Encode images to latents and compute REPA targets
             with torch.no_grad():
                 z = rae.encode(images)
-                z_clean = cls_clean = None
+                z_clean = cls_clean = attn_target = None
                 if repa_target_encoder is not None:
                     raw_images = images.clone() * 255.0
                     raw_img_preprocessed = repa_target_encoder.preprocess(raw_images)
@@ -138,6 +141,10 @@ def train_one_epoch(
                         cls_clean = feats['x_norm_clstoken']
                         if config.repa.use_repa:
                             z_clean = torch.cat([cls_clean.unsqueeze(1), z_clean], dim=1)
+                if attn_teacher is not None:
+                    from torchvision.transforms.functional import to_pil_image
+                    pil_images = [to_pil_image(img.cpu()) for img in images]
+                    attn_target = attn_teacher.get_attn_target(pil_images, y, config.attn_align.dit_grid_size)
 
             # Capture fixed conditions from first batch
             if viz_fixed is not None:
@@ -165,6 +172,11 @@ def train_one_epoch(
                 ema_model=ema_model,
                 cls_clean=cls_clean,
                 reg_coeff=config.repa.reg_coeff if config.repa.use_reg else None,
+                attn_target=attn_target,
+                attn_align_coeff=config.attn_align.attn_align_coeff if config.attn_align.use_attn_align else None,
+                attn_align_layer=config.attn_align.attn_align_layer_depth,
+                attn_align_t_thresh=config.attn_align.attn_align_t_thresh,
+                attn_align_loss_type=config.attn_align.attn_align_loss_type,
             )
             loss_diff = loss_dict["loss"].mean()
             loss_percep = loss_dict.get("loss_percep", torch.tensor(0.0, device=device)).mean()
@@ -172,10 +184,13 @@ def train_one_epoch(
 
             loss_repa = loss_dict.get("loss_repa", torch.tensor(0.0, device=device)).mean()
             loss_reg = loss_dict.get("loss_reg", torch.tensor(0.0, device=device)).mean()
+            loss_attn_align = loss_dict.get("loss_attn_align", torch.tensor(0.0, device=device)).mean()
             if config.repa.use_repa:
                 loss = loss + loss_repa
             if config.repa.use_reg:
                 loss = loss + loss_reg
+            if config.attn_align.use_attn_align:
+                loss = loss + loss_attn_align
 
         loss = loss / config.training.grad_accum_steps
 
@@ -216,6 +231,8 @@ def train_one_epoch(
                 stats["train/loss_repa"] = loss_repa.item()
             if config.repa.use_reg:
                 stats["train/loss_reg"] = loss_reg.item()
+            if config.attn_align.use_attn_align:
+                stats["train/loss_attn_align"] = loss_attn_align.item()
             if "loss_base" in loss_dict:
                 stats["train/loss_base"] = loss_dict["loss_base"].mean().item()
             if "loss_percep" in loss_dict:

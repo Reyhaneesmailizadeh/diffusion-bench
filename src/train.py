@@ -27,7 +27,7 @@ from stage2.models import Stage2ModelProtocol
 from stage2.transport import create_sampler, create_transport
 from stage2.utils import setup_text_encoder, validate_stage2_config
 from stage2.perceptual_loss import PerceptualLoss
-from utils.checkpoint import load_stage2_checkpoint, save_stage2_checkpoint
+from utils.checkpoint import load_stage2_checkpoint, load_stage2_weights_only, save_stage2_checkpoint
 from utils.dist_utils import cleanup_distributed, main_process_first, setup_distributed
 from utils.model_utils import instantiate_from_config
 from utils.optim_utils import build_optimizer, build_scheduler
@@ -43,6 +43,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--precision", type=str, choices=["fp32", "bf16"], default="fp32")
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--ckpt", type=str, default=None)
+    parser.add_argument("--init-weights-only", action="store_true",
+                         help="Load only model+EMA weights from --ckpt; start a fresh optimizer/scheduler "
+                              "with epoch/step at 0. Use when fine-tuning on a dataset whose steps-per-epoch "
+                              "differs too much from the checkpoint's original run for its saved scheduler "
+                              "state to make sense.")
     parser.add_argument("--sync-checkpoints", action="store_true")
     parser.add_argument("--compile", action="store_true", help="torch.compile the training loss function")
     return parser.parse_args()
@@ -126,6 +131,16 @@ def main():
         config.repa.z_dim = repa_target_encoder.embed_dim
         logger.info(f"REPA target encoder: {config.repa.target_encoder}, embed_dim={repa_target_encoder.embed_dim}")
 
+    # attention-alignment teacher (only meaningful for the raw-image dataset path --
+    # for dataset.type == "latents" the target is precomputed offline into the shards
+    # instead, see scripts/precompute_latents.py, and this stays None)
+    attn_teacher = None
+    if config.attn_align.use_attn_align and config.dataset.type != "latents":
+        with main_process_first(rank):
+            from encoders.bridgetower_attn_teacher import BridgeTowerAttnTeacher
+            attn_teacher = BridgeTowerAttnTeacher(device=device)
+        logger.info(f"Attention-align teacher: {config.attn_align.teacher_model}")
+
     # text encoder for text conditioning; None if not using text conditioning
     text_encoder = setup_text_encoder(config, rank, device)
 
@@ -205,14 +220,31 @@ def main():
     #########################################################
     start_epoch = 0
     global_step = 0
-    ckpt_path = find_resume_checkpoint(experiment_dir, args.ckpt)
-    if ckpt_path:
-        start_epoch, global_step = load_stage2_checkpoint(ckpt_path, ddp_model, ema_model, optimizer, scheduler)
-        logger.info(f"[Rank {rank}] Resumed from {ckpt_path} (epoch={start_epoch}, step={global_step}).")
+    if args.init_weights_only:
+        assert args.ckpt, "--init-weights-only requires --ckpt"
+        # An own_ckpt already in this experiment's dir means we're resuming after an
+        # interruption of THIS run, not warm-starting — resume it normally (optimizer,
+        # scheduler, and epoch/step all included), same as the non-init-weights-only path.
+        own_ckpt = find_resume_checkpoint(experiment_dir)
+        if own_ckpt:
+            start_epoch, global_step = load_stage2_checkpoint(own_ckpt, ddp_model, ema_model, optimizer, scheduler)
+            logger.info(f"[Rank {rank}] Resumed from {own_ckpt} (epoch={start_epoch}, step={global_step}).")
+        else:
+            load_stage2_weights_only(args.ckpt, ddp_model, ema_model)
+            logger.info(f"[Rank {rank}] Initialized weights only from {args.ckpt} "
+                        f"(epoch=0, step=0, fresh optimizer/scheduler).")
+            if rank == 0:
+                save_worktree(experiment_dir, config)
+                logger.info(f"Saved training worktree and config to {experiment_dir}.")
     else:
-        if rank == 0:
-            save_worktree(experiment_dir, config)
-            logger.info(f"Saved training worktree and config to {experiment_dir}.")
+        ckpt_path = find_resume_checkpoint(experiment_dir, args.ckpt)
+        if ckpt_path:
+            start_epoch, global_step = load_stage2_checkpoint(ckpt_path, ddp_model, ema_model, optimizer, scheduler)
+            logger.info(f"[Rank {rank}] Resumed from {ckpt_path} (epoch={start_epoch}, step={global_step}).")
+        else:
+            if rank == 0:
+                save_worktree(experiment_dir, config)
+                logger.info(f"Saved training worktree and config to {experiment_dir}.")
 
     # print exp config and training details
     if rank == 0:
@@ -291,6 +323,7 @@ def main():
             progress_bar=progress_bar,
             text_encoder=text_encoder,
             repa_target_encoder=repa_target_encoder,
+            attn_teacher=attn_teacher,
             eval_datasets=eval_datasets,
             viz_fixed=viz_fixed,
         )

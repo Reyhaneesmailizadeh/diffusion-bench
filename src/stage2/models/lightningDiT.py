@@ -13,9 +13,15 @@ class LightningDiTBlock(nn.Module):
         self.attn = NormAttention(hidden_size, num_heads)
         self.mlp = SwiGLUFFN(hidden_size, int(2/3 * hidden_size * mlp_ratio))
 
-    def forward(self, x, rope, attn_mask=None):
-        x = x + self.attn(self.norm1(x), rope=rope, attn_mask=attn_mask)
+    def forward(self, x, rope, attn_mask=None, return_weights=False):
+        attn_out = self.attn(self.norm1(x), rope=rope, attn_mask=attn_mask, return_weights=return_weights)
+        attn_weights = None
+        if return_weights:
+            attn_out, attn_weights = attn_out
+        x = x + attn_out
         x = x + self.mlp(self.norm2(x))
+        if return_weights:
+            return x, attn_weights
         return x
 
 
@@ -68,6 +74,7 @@ class LightningDiT(nn.Module):
         self.x_embedder = PatchEmbed(input_size, self.patch_size, in_channels, hidden_size)
 
         self.num_cond_tokens = cond_arch.num_t_tokens + cond_arch.num_c_tokens
+        self.num_c_tokens = cond_arch.num_c_tokens  # text/context tokens, always the last num_c_tokens of the sequence
         self.t_embedder = GaussianFourierEmbedding(self.hidden_size, cond_arch.num_t_tokens)
         self.ctx_embedder = ConditionEmbedder(
             self.hidden_size, num_classes, context_dim, condition_type, cond_arch.num_c_tokens
@@ -146,13 +153,39 @@ class LightningDiT(nn.Module):
         attn_mask = (1.0 - attn_mask[:, None, None, :]) * torch.finfo(seq.dtype).min
         return attn_mask
 
-    def forward(self, x, t, return_intermediate=False, **condition_kwargs):
+    def _pool_image_to_text_attn(self, attn_weights, s, n):
+        """Collapse [B, heads, N, N] joint attention to a per-image-token text-attention entropy.
+
+        Averages over heads, keeps only image-token rows and text-token columns (the last
+        num_c_tokens of the sequence). Unlike a same-modality alignment target, the reference
+        teacher's tokenizer generally won't match this model's, so token-level (column-to-
+        column) comparison isn't meaningful -- instead we renormalize the text-key sub-vector
+        to sum to 1 (it doesn't on its own here, since only *part* of this row's full
+        image+time+text softmax budget goes to text) and take its entropy: "given this patch
+        engages with the caption at all, how confidently/peakily is that engagement focused,"
+        which is tokenizer-agnostic and comparable against the same statistic computed on a
+        teacher model (see encoders/bridgetower_attn_teacher.py). Returns [B, n].
+        """
+        weights = attn_weights.mean(dim=1)  # [B, N, N], average over heads
+        image_rows = weights[:, s:s + n, :]  # [B, n, N]
+        text_cols = image_rows[:, :, -self.num_c_tokens:]  # [B, n, num_c_tokens]
+        eps = 1e-8
+        p = text_cols / text_cols.sum(dim=-1, keepdim=True).clamp_min(eps)
+        return -(p.clamp_min(eps) * p.clamp_min(eps).log()).sum(dim=-1)  # [B, n]
+
+    def forward(self, x, t, return_intermediate=False, return_attn_layer=None, **condition_kwargs):
         zt_intermediate = None
+        attn_intermediate = None
         x = self._build_sequence(x, t, condition_kwargs)
         attn_mask = self._build_attn_mask(x, condition_kwargs)
         s, n = int(self.enable_reg), self.x_embedder.num_patches
         for i, block in enumerate(self.blocks):
-            x = block(x, self.rope, attn_mask)
+            want_weights = return_attn_layer is not None and (i + 1) == return_attn_layer
+            if want_weights:
+                x, attn_weights = block(x, self.rope, attn_mask, return_weights=True)
+                attn_intermediate = self._pool_image_to_text_attn(attn_weights, s, n)
+            else:
+                x = block(x, self.rope, attn_mask)
             if return_intermediate and (i + 1) == self.repa_layer_depth:
                 zt_intermediate = self.repa_projector(x[:, :s + n, :])
 
@@ -164,8 +197,12 @@ class LightningDiT(nn.Module):
         if self.enable_reg:
             x = (x, cls_pred)
 
+        if return_intermediate and return_attn_layer is not None:
+            return x, zt_intermediate, attn_intermediate
         if return_intermediate:
             return x, zt_intermediate
+        if return_attn_layer is not None:
+            return x, attn_intermediate
         return x
 
 

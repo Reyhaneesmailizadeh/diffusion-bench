@@ -117,6 +117,28 @@ class RepaConfig:
 
 
 @dataclass
+class AttnAlignConfig:
+    """Cross-modal attention alignment loss configuration.
+
+    Aligns the DiT's own image->text joint-attention slice at a given layer against
+    a pooled image->text attention target from a frozen multimodal teacher model,
+    gated by timestep (only when t < attn_align_t_thresh, i.e. a cleaner-than-average
+    latent) so the loss doesn't fight against near-pure-noise steps.
+
+    dit_grid_size is derived in Stage2Config.post_process() from stage_2.params
+    (input_size // patch_size); teacher-side vectors must be interpolated to that
+    grid before comparison (see encoders/bridgetower_attn_teacher.py).
+    """
+    use_attn_align: bool = False
+    attn_align_layer_depth: int = 4
+    attn_align_coeff: float = 0.5
+    attn_align_t_thresh: float = 0.7
+    attn_align_loss_type: str = "kl"  # "kl" | "mse" | "cosine"
+    teacher_model: str = "bridgetower-base"
+    dit_grid_size: Optional[int] = None  # initialized later in post_process()
+
+
+@dataclass
 class ConditioningArchConfig:
     """In-context conditioning architecture configuration."""
     num_t_tokens: int = 4
@@ -160,6 +182,7 @@ class Stage2Config:
     guidance: GuidanceConfig = field(default_factory=GuidanceConfig)
     conditioning: ConditioningConfig = field(default_factory=ConditioningConfig)
     repa: RepaConfig = field(default_factory=RepaConfig)
+    attn_align: AttnAlignConfig = field(default_factory=AttnAlignConfig)
     misc: MiscConfig = field(default_factory=MiscConfig)
     internal_guidance: InternalGuidanceConfig = field(default_factory=InternalGuidanceConfig)
     perceptual_loss: PerceptualLossConfig = field(default_factory=PerceptualLossConfig)
@@ -175,6 +198,13 @@ class Stage2Config:
 
         if self.conditioning.type == "text":
             self.conditioning.arch.num_c_tokens = self.conditioning.text_encoder.max_length
+
+        if self.attn_align.use_attn_align and self.attn_align.dit_grid_size is None:
+            input_size = self.stage_2.params.get('input_size')
+            patch_size = self.stage_2.params.get('patch_size', 1)
+            assert input_size is not None, "attn_align requires stage_2.params.input_size to be set"
+            assert input_size % patch_size == 0, "input_size must be divisible by patch_size for attn_align"
+            self.attn_align.dit_grid_size = input_size // patch_size
 
     def prepare_model_params(self):
         """Populate stage_2.params from typed config fields for model construction.

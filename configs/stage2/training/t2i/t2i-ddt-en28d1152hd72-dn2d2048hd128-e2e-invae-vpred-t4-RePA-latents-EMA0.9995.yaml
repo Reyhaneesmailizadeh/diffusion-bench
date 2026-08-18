@@ -47,7 +47,7 @@ dataset:
   shared_tmpdir: "~/tmp"
 
 training:
-  epochs: 100
+  epochs: 200
   global_batch_size: 256
   grad_accum_steps: 1
   ema_decay: 0.9995
@@ -73,7 +73,7 @@ training:
 eval:
   eval_interval: 10000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa-latents-invae-EMA0.9995-300epochs"
+  eval_dir: "results/evals/stage2/training/dogs-recaptioned-repa-latents-invae-EMA0.9995-200epochs"
   datasets:
     dogs:
       target: 'dogs'
