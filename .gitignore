@@ -228,3 +228,6 @@ tmp_figures/
 # Backup dirs
 .bck/
 symlinks.yaml
+
+# generated reward-model samples (regenerable via reward_model/score_images.py)
+reward_model/images/

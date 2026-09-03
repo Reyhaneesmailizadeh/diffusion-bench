@@ -115,6 +115,14 @@ class RepaConfig:
     target_encoder_resolution: int = 256
     z_dim: Optional[int] = None  # initialized later in train.py
 
+    # iREPA (arxiv 2512.10794): conv projector + spatial z-score norm on the target features.
+    # Both default to vanilla REPA behavior; set projector_type: "conv" and/or
+    # spatial_norm: "zscore" in a config to opt in. Not supported together with use_reg.
+    projector_type: str = "mlp"  # "mlp" | "conv"
+    projector_kernel_size: int = 3  # only used when projector_type == "conv"
+    spatial_norm: str = "none"  # "none" | "zscore"
+    spatial_norm_alpha: float = 1.0  # mean-subtraction scale in the zscore norm
+
 
 @dataclass
 class AttnAlignConfig:
@@ -227,6 +235,8 @@ class Stage2Config:
         if self.repa.use_repa:
             params.setdefault('enable_repa', True)
             params.setdefault('repa_layer_depth', self.repa.repa_layer_depth)
+            params.setdefault('repa_projector_type', self.repa.projector_type)
+            params.setdefault('repa_projector_kernel_size', self.repa.projector_kernel_size)
 
         if (self.repa.use_reg or self.repa.use_repa) and self.repa.z_dim is not None:
             params.setdefault('z_dim', self.repa.z_dim)

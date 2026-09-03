@@ -25,6 +25,26 @@ class LightningDiTBlock(nn.Module):
         return x
 
 
+class ConvRepaProjector(nn.Module):
+    """iREPA (arxiv 2512.10794) projector: a same-size conv over the image-token spatial grid,
+    instead of a per-token MLP/Linear. Only valid on a pure image-token slice (no cls/register
+    token mixed in) since the grid reshape assumes every token is a spatial position.
+    """
+    def __init__(self, hidden_size, z_dim, grid_size, kernel_size=3):
+        super().__init__()
+        self.grid_size = grid_size
+        self.conv = nn.Conv2d(hidden_size, z_dim, kernel_size=kernel_size, stride=1, padding=kernel_size // 2)
+
+    def forward(self, x):
+        b, n, d = x.shape
+        h = w = self.grid_size
+        assert n == h * w, f"ConvRepaProjector expects a square image-token grid, got n={n} for grid_size={h}"
+        x = x.reshape(b, h, w, d).permute(0, 3, 1, 2)  # [B, N, D] -> [B, D, H, W]
+        x = self.conv(x)
+        x = x.permute(0, 2, 3, 1).reshape(b, n, -1)  # [B, z_dim, H, W] -> [B, N, z_dim]
+        return x
+
+
 class LightningFinalLayer(nn.Module):
     def __init__(self, hidden_size, patch_size, out_channels, cls_dim=None):
         super().__init__()
@@ -53,6 +73,8 @@ class LightningDiT(nn.Module):
         mlp_ratio=4.0,
         enable_repa=False,
         repa_layer_depth=8,
+        repa_projector_type="mlp",
+        repa_projector_kernel_size=3,
         z_dim=None,
         enable_reg=False,
         num_classes=1000,
@@ -91,7 +113,19 @@ class LightningDiT(nn.Module):
         self.final_layer = LightningFinalLayer(self.hidden_size, self.patch_size, self.in_channels, cls_dim=z_dim if enable_reg else None)
         self.rope = RoPE(self.hidden_size // num_heads, self.x_embedder.num_patches, self.num_cond_tokens, extra_tokens=int(enable_reg))
         if enable_repa:
-            self.repa_projector = nn.Linear(self.hidden_size, z_dim)
+            if repa_projector_type == "conv":
+                assert not enable_reg, (
+                    "iREPA conv projector requires a pure image-token slice for the spatial "
+                    "grid reshape; it doesn't support enable_reg (register/cls token) yet."
+                )
+                grid_size = int(round(self.x_embedder.num_patches ** 0.5))
+                assert grid_size * grid_size == self.x_embedder.num_patches, (
+                    f"iREPA conv projector requires a square image-token grid, "
+                    f"got num_patches={self.x_embedder.num_patches}"
+                )
+                self.repa_projector = ConvRepaProjector(self.hidden_size, z_dim, grid_size, repa_projector_kernel_size)
+            else:
+                self.repa_projector = nn.Linear(self.hidden_size, z_dim)
         if enable_reg:
             self.cls_in_proj = nn.Linear(z_dim, self.hidden_size)
             self.cls_in_norm = RMSNorm(self.hidden_size)

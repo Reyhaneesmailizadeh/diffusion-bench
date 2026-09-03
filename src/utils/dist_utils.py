@@ -1,5 +1,7 @@
 
 import os
+from datetime import timedelta
+
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
@@ -10,7 +12,12 @@ def setup_distributed() -> Tuple[int, int, torch.device]:
     if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
         rank = int(os.environ["RANK"])
         world_size = int(os.environ["WORLD_SIZE"])
-        dist.init_process_group(backend="nccl")
+        # NCCL's default collective timeout is 10 minutes. Periodic eval runs a full
+        # sampling + VAE-decode pass that takes ~12 min here and longer under GPU
+        # contention, so ranks waiting at the post-eval collective can trip the
+        # watchdog and abort the whole job. PG_TIMEOUT_MIN overrides the margin.
+        timeout_min = int(os.environ.get("PG_TIMEOUT_MIN", "45"))
+        dist.init_process_group(backend="nccl", timeout=timedelta(minutes=timeout_min))
         local_rank = int(os.environ.get("LOCAL_RANK", rank % torch.cuda.device_count()))
         torch.cuda.set_device(local_rank)
         device = torch.device("cuda", local_rank)

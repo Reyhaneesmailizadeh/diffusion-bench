@@ -167,6 +167,8 @@ def train_one_epoch(
                 percep_loss=percep_loss,
                 z_clean=z_clean,
                 repa_coeff=config.repa.repa_coeff if config.repa.use_repa else None,
+                repa_spatial_norm=config.repa.use_repa and config.repa.spatial_norm == "zscore",
+                repa_spatial_norm_alpha=config.repa.spatial_norm_alpha,
                 base_model_coeff=config.internal_guidance.base_model_coeff,
                 cfg_dropout_prob=config.conditioning.cfg_dropout_prob,
                 ema_model=ema_model,

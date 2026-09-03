@@ -11,6 +11,16 @@ def _expand_t(t, x):
     return t.view(t.size(0), *([1] * (len(x.size()) - 1)))
 
 
+def spatial_zscore(feat, alpha=1.0, eps=1e-6):
+    """iREPA (arxiv 2512.10794) target normalization: per-channel z-score across the token/
+    spatial dimension (dim=1), independently per sample. Removes each channel's own scale/
+    offset so the REPA loss compares relative spatial pattern rather than absolute magnitude.
+    """
+    mean = feat.mean(dim=1, keepdim=True)
+    std = feat.std(dim=1, keepdim=True)
+    return (feat - alpha * mean) / (std + eps)
+
+
 def attn_align_loss(pred, target, loss_type="kl", eps=1e-8):
     """Per-sample loss between two pooled [B, N] image-token attention-mass vectors.
 
@@ -62,7 +72,9 @@ class Transport:
     #######################################################
     #               Forward Pass and Loss                 #
     #######################################################
-    def training_losses(self, model, x1, model_kwargs={}, model_kwargs_null={}, z_clean=None, repa_coeff=None, base_model_coeff=1.0, percep_loss=None, cfg_dropout_prob=0.1, ema_model=None, cls_clean=None, reg_coeff=None, attn_target=None, attn_align_coeff=None, attn_align_layer=None, attn_align_t_thresh=0.7, attn_align_loss_type="kl"):
+    def training_losses(self, model, x1, model_kwargs={}, model_kwargs_null={}, z_clean=None, repa_coeff=None, base_model_coeff=1.0, percep_loss=None, cfg_dropout_prob=0.1, ema_model=None, cls_clean=None, reg_coeff=None, attn_target=None, attn_align_coeff=None, attn_align_layer=None, attn_align_t_thresh=0.7, attn_align_loss_type="kl", repa_spatial_norm=False, repa_spatial_norm_alpha=1.0):
+        if repa_spatial_norm and z_clean is not None:
+            z_clean = spatial_zscore(z_clean, alpha=repa_spatial_norm_alpha)
         model_kwargs, _ = apply_cfg_dropout(model_kwargs, model_kwargs_null, cfg_dropout_prob)
 
         t, x0, x1 = self.sample(x1)
@@ -252,7 +264,9 @@ class TransportMF(Transport):
     #######################################################
     #               Forward Pass and Loss                 #
     #######################################################
-    def training_losses(self, model, x1, model_kwargs={}, model_kwargs_null={}, z_clean=None, repa_coeff=None, base_model_coeff=1.0, percep_loss=None, cfg_dropout_prob=0.1, ema_model=None, cls_clean=None, reg_coeff=None, attn_target=None, attn_align_coeff=None, attn_align_layer=None, attn_align_t_thresh=0.7, attn_align_loss_type="kl"):
+    def training_losses(self, model, x1, model_kwargs={}, model_kwargs_null={}, z_clean=None, repa_coeff=None, base_model_coeff=1.0, percep_loss=None, cfg_dropout_prob=0.1, ema_model=None, cls_clean=None, reg_coeff=None, attn_target=None, attn_align_coeff=None, attn_align_layer=None, attn_align_t_thresh=0.7, attn_align_loss_type="kl", repa_spatial_norm=False, repa_spatial_norm_alpha=1.0):
+        if repa_spatial_norm and z_clean is not None:
+            z_clean = spatial_zscore(z_clean, alpha=repa_spatial_norm_alpha)
         if attn_target is not None and attn_align_coeff is not None:
             raise NotImplementedError(
                 "attn_align is not yet wired up for TransportMF (meanflow) -- only the base "

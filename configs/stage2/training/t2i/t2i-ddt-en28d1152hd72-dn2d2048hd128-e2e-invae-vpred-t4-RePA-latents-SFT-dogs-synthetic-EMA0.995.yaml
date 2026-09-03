@@ -71,9 +71,9 @@ training:
   image_size: 256
 
 eval:
-  eval_interval: 100
+  eval_interval: 150
   eval_model: false
-  eval_dir: "results/evals/stage2/training/invae-sft-dogs_synthetic-EMA0.995-100ep-newLR"
+  eval_dir: "results/evals/stage2/training/invae-sft-dogs_synthetic-EMA0.995-100ep-refined"
   datasets:
     dogs:
       target: 'dogs'

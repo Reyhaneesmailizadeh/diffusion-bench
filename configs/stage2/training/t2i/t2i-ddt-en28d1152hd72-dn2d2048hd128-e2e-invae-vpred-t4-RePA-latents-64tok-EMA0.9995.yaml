@@ -71,9 +71,9 @@ training:
   image_size: 256
 
 eval:
-  eval_interval: 10000
+  eval_interval: 5000
   eval_model: false
-  eval_dir: "results/evals/stage2/training/dogs-recaptioned-64tok-repa-latents-invae-EMA0.9995-200epochs"
+  eval_dir: "results/evals/stage2/training/e2e-invae-vpred-t4-RePA-latents-64tok-EMA0.9995"
   datasets:
     dogs:
       target: 'dogs'
